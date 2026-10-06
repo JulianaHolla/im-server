@@ -31,7 +31,9 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Build with Gradle
-      run: ./gradlew build
+      run: |
+        chmod +x ./gradlew
+        ./gradlew build
 
     - name: Save build artifacts
       if: success()
@@ -64,7 +66,7 @@ jobs:
       run: java -jar NATT.jar -c https://gitlab.com/ap5vs/test-config/im-server-config/-/raw/main/test-config-4.yaml?ref_type=heads
 
     - name: Save test report
-      if: success()
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-report

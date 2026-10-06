@@ -11,6 +11,7 @@ stages:
 build_application:
   stage: build
   script:
+    - chmod +x ./gradlew
     - ./gradlew build
   artifacts:
     paths:
@@ -22,6 +23,7 @@ black_box_testing:
   script:
     - java -jar NATT.jar -nc https://gitlab.com/ap5vs/test-config/im-server-config/-/raw/main/test-config-4.yaml?ref_type=heads
   artifacts:
+    when: always
     paths:
       - test_report.html
   dependencies:
