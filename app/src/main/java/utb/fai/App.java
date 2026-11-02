@@ -1,3 +1,4 @@
+//hlavna serverova smycka,
 package utb.fai;
 
 import java.io.*;
@@ -7,7 +8,7 @@ import java.util.concurrent.*;
 public class App {
 
 	public static void main(String[] args) {
-		int port = 33000, max_conn = 2;
+		int port = 33000, max_conn = 2; //port a max pocet spojeni
 
 		if (args.length > 0) {
 			if (args[0].startsWith("--help")) {
@@ -31,16 +32,16 @@ public class App {
 		}
 		// TODO Auto-generated method stub
 		System.out.printf("IM server listening on port %d, maximum nr. of connections=%d...\n", port, max_conn);
-		ExecutorService pool = Executors.newFixedThreadPool(2 * max_conn);
+		ExecutorService pool = Executors.newFixedThreadPool(2 * max_conn); //pool vlakien, max pocet * 2
 		ActiveHandlers activeHandlers = new ActiveHandlers();
 
 		try {
-			ServerSocket sSocket = new ServerSocket(port);
+			ServerSocket sSocket = new ServerSocket(port); //nekonecna smycka v ktorej prebieha prepojenie, napojenie novych spojeni na server
 			do {
 				Socket clientSocket = sSocket.accept();
 				clientSocket.setKeepAlive(true);
 				SocketHandler handler = new SocketHandler(clientSocket, activeHandlers);
-				pool.execute(handler.inputHandler);
+				pool.execute(handler.inputHandler); //runnables - in a out
 				pool.execute(handler.outputHandler);
 			} while (!pool.isTerminated());
 		} catch (UnknownHostException e) {
@@ -65,3 +66,4 @@ public class App {
 		}
 	}
 }
+//sem moc zasahovat nebudeme
