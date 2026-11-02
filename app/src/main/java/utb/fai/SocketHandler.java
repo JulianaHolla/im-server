@@ -6,16 +6,16 @@ import java.net.*;
 import java.util.concurrent.*;
 
 public class SocketHandler { //
-	/** mySocket je socket, o který se bude tento SocketHandler starat */
+	/** mySocket je socket, o kter se bude tento SocketHandler starat */
 	Socket mySocket;
 
-	/** client ID je øetìzec ve formátu <IP_adresa>:<port> */
+	/** client ID je etzec ve formtu <IP_adresa>:<port> */
 	String clientID; //je ip adresa a port ktory je pripojeny na server - prerobit aby to bol nickname namiesto ip a portu
 
 	/**
-	 * activeHandlers je reference na mnoinu vech právì bìících SocketHandlerù.
-	 * Potøebujeme si ji udrovat, abychom mohli zprávu od tohoto klienta
-	 * poslat vem ostatním!
+	 * activeHandlers je reference na mnoinu vech prv bcch SocketHandler.
+	 * Potebujeme si ji udrovat, abychom mohli zprvu od tohoto klienta
+	 * poslat vem ostatnm!
 	 */
 	ActiveHandlers activeHandlers; //zdielana referencia medzi vsetkymi
 
@@ -23,26 +23,26 @@ public class SocketHandler { //
 	volatile String name = null;
 
 	/**
-	 * messages je fronta pøíchozích zpráv, kterou musí mít kaý klient svoji
-	 * vlastní - pokud bude je pøetíená nebo nefunkèní klientova sí,
-	 * èekají zprávy na doruèení právì ve frontì messages
+	 * messages je fronta pchozch zprv, kterou mus mt ka klient svoji
+	 * vlastn - pokud bude je peten nebo nefunkn klientova s,
+	 * ekaj zprvy na doruen prv ve front messages
 	 */
 	ArrayBlockingQueue<String> messages = new ArrayBlockingQueue<String>(20); //funguje ako buffer, ak socket handler 
 	// zisti ze nejaky klient odosle spravu na server, tak handler vsetkym aktivnym handlerom 
 	// vlozi spravu na buffer - runnable obstara spravu a odosle von 
 
 	/**
-	 * startSignal je synchronizaèní závora, která zaøizuje, aby oba tasky
-	 * OutputHandler.run() a InputHandler.run() zaèaly ve stejný okamik.
+	 * startSignal je synchronizan zvora, kter zaizuje, aby oba tasky
+	 * OutputHandler.run() a InputHandler.run() zaaly ve stejn okamik.
 	 */
 	CountDownLatch startSignal = new CountDownLatch(2);
 
-	/** outputHandler.run() se bude starat o OutputStream mého socketu */
+	/** outputHandler.run() se bude starat o OutputStream mho socketu */
 	OutputHandler outputHandler = new OutputHandler();
-	/** inputHandler.run() se bude starat o InputStream mého socketu */
+	/** inputHandler.run() se bude starat o InputStream mho socketu */
 	InputHandler inputHandler = new InputHandler();
 	/**
-	 * protoe v outputHandleru nedovedu detekovat uzavøení socketu, pomùe mi
+	 * protoe v outputHandleru nedovedu detekovat uzaven socketu, pome mi
 	 * inputFinished
 	 */
 	volatile boolean inputFinished = false;
@@ -67,9 +67,9 @@ public class SocketHandler { //
 				writer.write("\nYou are connected from " + clientID + "\n");
 				writer.flush();
 				while (!inputFinished) {
-					String m = messages.take();// blokující ètení - pokud není ve frontì zpráv nic, uspi se!
-					writer.write(m + "\r\n"); // pokud nìjaké zprávy od ostatních máme,
-					writer.flush(); // poleme je naemu klientovi
+					String m = messages.take();// blokujc ten - pokud nen ve front zprv nic, uspi se!
+					writer.write(m + "\r\n"); // pokud njak zprvy od ostatnch mme,
+					writer.flush(); // poleme je naemu klientovi
 					System.err.println("DBG>Message sent to " + clientID + ":" + m + "\n");
 				}
 			} catch (IOException e) {
@@ -94,11 +94,11 @@ public class SocketHandler { //
 				System.err.println("DBG>Input handler running for " + clientID);
 				String request = "";
 				/**
-				 * v okamiku, kdy nás Thread pool spustí, pøidáme se do mnoiny
-				 * vech aktivních handlerù, aby chodily zprávy od ostatních i nám
+				 * v okamiku, kdy ns Thread pool spust, pidme se do mnoiny
+				 * vech aktivnch handler, aby chodily zprvy od ostatnch i nm
 				 */
 				activeHandlers.add(SocketHandler.this);
-				messages.offer("Welcome! Choose your name: #setMyName <name>");
+				messages.offer("Welcome! Type your name (no spaces):");
 				BufferedReader reader = new BufferedReader(new InputStreamReader(mySocket.getInputStream(), "UTF-8"));
 				while ((request = reader.readLine()) != null) { // prisla od meho klienta nejaka zprava?
 					request = request.trim();
@@ -108,7 +108,8 @@ public class SocketHandler { //
 					if (request.startsWith("#")) {
 						processCommand(request); // prikaz
 					} else if (name == null) {
-						messages.offer("Set your name first: #setMyName <name>");
+						// prvni zprava od klienta = jeho jmeno
+						setName(request);
 					} else {
 						// zprava - poslat do vsech mistnosti, kde jsem
 						System.out.println("From " + name + ": " + request);
@@ -132,6 +133,17 @@ public class SocketHandler { //
 			System.err.println("DBG>Input handler for " + clientID + " has finished.");
 		}
 
+		// nastavi jmeno, pokud je volne a nema mezery
+		private void setName(String newName) {
+			if (newName.contains(" ")) {
+				messages.offer("Name must not contain spaces, choose another one.");
+			} else if (!activeHandlers.setName(SocketHandler.this, newName)) {
+				messages.offer("Name " + newName + " is already taken, choose another one.");
+			} else {
+				messages.offer("Your name is now " + newName);
+			}
+		}
+
 		// zpracuje prikazy #setMyName, #sendPrivate, #join, #leave, #groups
 		private void processCommand(String line) {
 			String[] parts = line.split(" ", 3);
@@ -140,14 +152,12 @@ public class SocketHandler { //
 			if (command.equals("#setMyName")) {
 				if (parts.length != 2) {
 					messages.offer("Usage: #setMyName <name> (no spaces)");
-				} else if (!activeHandlers.setName(SocketHandler.this, parts[1])) {
-					messages.offer("Name " + parts[1] + " is already taken, choose another one.");
 				} else {
-					messages.offer("Your name is now " + parts[1]);
+					setName(parts[1]);
 				}
 			} else if (command.equals("#sendPrivate")) {
 				if (name == null) {
-					messages.offer("Set your name first: #setMyName <name>");
+					messages.offer("Set your name first.");
 				} else if (parts.length < 3) {
 					messages.offer("Usage: #sendPrivate <name> <message>");
 				} else if (!activeHandlers.sendPrivate(parts[1], "[" + name + "] >> " + parts[2])) {
