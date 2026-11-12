@@ -1,62 +1,52 @@
-//zdielana classa, uchovava aktivnych handlerov - napr. aktivne sockety 
+// Shared class, keeps all active handlers (connected clients) and chat rooms
 package utb.fai;
 
 import java.util.*;
 
 public class ActiveHandlers {
-    private static final long serialVersionUID = 1L;
     private HashSet<SocketHandler> activeHandlersSet = new HashSet<SocketHandler>();
-    // nazev mistnosti -> seznam klientu v mistnosti
+    // room name -> list of clients in the room
     private LinkedHashMap<String, ArrayList<SocketHandler>> rooms = new LinkedHashMap<String, ArrayList<SocketHandler>>();
 
     public ActiveHandlers() {
-        rooms.put("public", new ArrayList<SocketHandler>()); // vychozi mistnost
+        rooms.put("public", new ArrayList<SocketHandler>()); // default room
     }
 
     /**
-     * sendMessageToAll - Posle zprávu vsem aktivním klientùm krome sebe sama
-     * 
-     
-    //z jedneho handleru preposle spravu vsetkym aktivnym klientom, okrem samych seba 
-     * @param sender  - reference odesílatele
-     * @param message - retezec se zprávou
+     * Sends the message to all active clients except the sender.
      */
     synchronized void sendMessageToAll(SocketHandler sender, String message) {
-        for (SocketHandler handler : activeHandlersSet) // pro vsechny aktivní handlery
+        for (SocketHandler handler : activeHandlersSet)
             if (handler != sender) {
-                if (!handler.messages.offer(message)) // zkus pridat zprávu do fronty jeho zpráv
+                if (!handler.messages.offer(message))
                     System.err.printf("Client %s message queue is full, dropping the message!\n", handler.clientID);
             }
     }
 
     /**
-     * add peidá do mnoziny aktivních handleru nový handler.
-     * Metoda je sychronizovaná, protoe HashSet neumí multithreading.
-     * 
-     * @param handler - reference na handler, který se má pridat.
-     * @return true if the set did not already contain the specified element.
+     * Adds a new handler to the active handlers and to the "public" room.
+     * Synchronized, because HashSet is not thread safe.
      */
     synchronized boolean add(SocketHandler handler) {
-        rooms.get("public").add(handler); // kazdy klient je automaticky v public
+        rooms.get("public").add(handler); // every client is automatically in public
         return activeHandlersSet.add(handler);
     }
 
     /**
-     * remove odebere z mnoziny aktivních handlere nový handler.
-     * Metoda je sychronizovaná, protoze HashSet neumí multithreading.
-     * 
-     * @param handler - reference na handler, který se má odstranit
-     * @return true if the set did not already contain the specified element.
+     * Removes the handler from the active handlers and from all rooms.
      */
     synchronized boolean remove(SocketHandler handler) {
         ArrayList<String> names = new ArrayList<String>(rooms.keySet());
-        for (String room : names) { // odebrat ze vsech mistnosti
+        for (String room : names) {
             leave(handler, room);
         }
         return activeHandlersSet.remove(handler);
     }
 
-    // posle zpravu vsem v mistnostech odesilatele (kazdemu jen jednou)
+    /**
+     * Sends the message to everyone in the rooms of the sender.
+     * Each client gets the message only once, the sender does not get it.
+     */
     synchronized void sendMessageToGroups(SocketHandler sender, String message) {
         ArrayList<SocketHandler> alreadySent = new ArrayList<SocketHandler>();
         for (ArrayList<SocketHandler> members : rooms.values()) {
@@ -72,7 +62,9 @@ public class ActiveHandlers {
         }
     }
 
-    // soukroma zprava, vraci false pokud uzivatel neexistuje
+    /**
+     * Private message. Returns false if the user does not exist.
+     */
     synchronized boolean sendPrivate(String name, String message) {
         for (SocketHandler handler : activeHandlersSet) {
             if (name.equals(handler.name)) {
@@ -84,18 +76,23 @@ public class ActiveHandlers {
         return false;
     }
 
-    // nastavi jmeno, pokud uz neni pouzite
+    /**
+     * Sets the name of the client if nobody else uses it.
+     */
     synchronized boolean setName(SocketHandler handler, String name) {
         for (SocketHandler other : activeHandlersSet) {
             if (other != handler && name.equals(other.name))
                 return false;
         }
         handler.name = name;
-        handler.clientID = name; // misto IP:port pouzijeme nickname
+        handler.clientID = name; // nickname instead of IP:port
         return true;
     }
 
-    // pripoji do mistnosti, vytvori ji pokud neexistuje
+    /**
+     * Joins the client to the room, the room is created if it does not exist.
+     * Returns false if the client is already in the room.
+     */
     synchronized boolean join(SocketHandler handler, String room) {
         if (!rooms.containsKey(room)) {
             rooms.put(room, new ArrayList<SocketHandler>());
@@ -107,7 +104,10 @@ public class ActiveHandlers {
         return true;
     }
 
-    // odpoji z mistnosti, prazdnou mistnost (krome public) smaze
+    /**
+     * Removes the client from the room, an empty room (except public) is deleted.
+     * Returns false if the client was not in the room.
+     */
     synchronized boolean leave(SocketHandler handler, String room) {
         ArrayList<SocketHandler> members = rooms.get(room);
         if (members == null || !members.contains(handler))
@@ -118,7 +118,9 @@ public class ActiveHandlers {
         return true;
     }
 
-    // mistnosti klienta oddelene carkami
+    /**
+     * Rooms of the client separated by commas, e.g. "public,MyGroup1".
+     */
     synchronized String groups(SocketHandler handler) {
         String result = "";
         for (String room : rooms.keySet()) {
@@ -131,25 +133,3 @@ public class ActiveHandlers {
         return result;
     }
 }
-
-
-//na gite tabulka ako to ma vyzerat - dodrzat format
-//setMyNAme - uzivatelske meno bez medzier, aby bol vramci serveru unikatny nick, server ho musi vyzvat ak uz existuje,
-//po uspesnom pripojeni server by mal vyzvat uzivatela pre zvolenie nickname hned na zaciatku
-
-//sendPrivate (nickname - komu posielame, message - co cheme poslat - moze byt s medzerami )
-
-//join(chatMiestnost - vytvorit vlakno pre chat, spravy sa mozu posielat len do tej skupiny v ktorych su)
-//ak skupina s nazvom neexistuje tak sa vytvori nova a je tam klient najprv sam, potom sa ludia mozu pripojit
-//skupina by mala mat id public
-
-//leave (public-main skupina v ktorej sme)
-
-//groups informacny command, v akych skupinach sme, oddelene ciarkami
-
-
-
-//ked server posiela spravu inemu uzivatelovi tak dodrzat format - [<od koho>] >> <sprava>
-
-//ak uzivatel je v roznych skupinach - posiela sa sprava aj do public - default skupina v ktorej je, prida sa aj do skupiny group1
-//sprava sa posiela do vsetkych skupin v ktorych uzivatel je - public aj group1 
