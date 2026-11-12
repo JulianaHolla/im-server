@@ -1,50 +1,38 @@
-//spracocovava aky klient je pripojeny na aky server
+// Takes care of one connected client (socket)
 package utb.fai;
 
 import java.io.*;
 import java.net.*;
 import java.util.concurrent.*;
 
-public class SocketHandler { //
-	/** mySocket je socket, o kter se bude tento SocketHandler starat */
+public class SocketHandler {
+	/** socket of this client */
 	Socket mySocket;
 
-	/** client ID je etzec ve formtu <IP_adresa>:<port> */
-	String clientID; //je ip adresa a port ktory je pripojeny na server - prerobit aby to bol nickname namiesto ip a portu
+	/** IP:port of the client, replaced by the nickname after the name is set */
+	String clientID;
 
-	/**
-	 * activeHandlers je reference na mnoinu vech prv bcch SocketHandler.
-	 * Potebujeme si ji udrovat, abychom mohli zprvu od tohoto klienta
-	 * poslat vem ostatnm!
-	 */
-	ActiveHandlers activeHandlers; //zdielana referencia medzi vsetkymi
+	/** shared reference to all active handlers */
+	ActiveHandlers activeHandlers;
 
-	// uzivatelske jmeno, dokud neni nastaveno je null
+	/** user name, null until the client sets it */
 	volatile String name = null;
 
 	/**
-	 * messages je fronta pchozch zprv, kterou mus mt ka klient svoji
-	 * vlastn - pokud bude je peten nebo nefunkn klientova s,
-	 * ekaj zprvy na doruen prv ve front messages
+	 * Queue of messages for this client. Other handlers put messages here,
+	 * OutputHandler takes them out and sends them to the client.
 	 */
-	ArrayBlockingQueue<String> messages = new ArrayBlockingQueue<String>(20); //funguje ako buffer, ak socket handler 
-	// zisti ze nejaky klient odosle spravu na server, tak handler vsetkym aktivnym handlerom 
-	// vlozi spravu na buffer - runnable obstara spravu a odosle von 
+	ArrayBlockingQueue<String> messages = new ArrayBlockingQueue<String>(20);
 
-	/**
-	 * startSignal je synchronizan zvora, kter zaizuje, aby oba tasky
-	 * OutputHandler.run() a InputHandler.run() zaaly ve stejn okamik.
-	 */
+	/** makes both tasks (output and input) start at the same moment */
 	CountDownLatch startSignal = new CountDownLatch(2);
 
-	/** outputHandler.run() se bude starat o OutputStream mho socketu */
+	/** takes care of the OutputStream of the socket */
 	OutputHandler outputHandler = new OutputHandler();
-	/** inputHandler.run() se bude starat o InputStream mho socketu */
+	/** takes care of the InputStream of the socket */
 	InputHandler inputHandler = new InputHandler();
-	/**
-	 * protoe v outputHandleru nedovedu detekovat uzaven socketu, pome mi
-	 * inputFinished
-	 */
+
+	/** OutputHandler cannot detect a closed socket, so InputHandler tells it */
 	volatile boolean inputFinished = false;
 
 	public SocketHandler(Socket mySocket, ActiveHandlers activeHandlers) {
@@ -53,9 +41,8 @@ public class SocketHandler { //
 		this.activeHandlers = activeHandlers;
 	}
 
-//berire spravy z fronty a spracovava spravy, ak tam nieco je tak to preposle spravnemu klientovi, ak tam nic neni tak caka
-//moc nezasahovat, mozno tak upravit nieco velmi banalne
-	class OutputHandler implements Runnable { 
+	// takes messages from the queue and sends them to the client (waits if the queue is empty)
+	class OutputHandler implements Runnable {
 		public void run() {
 			OutputStreamWriter writer;
 			try {
@@ -67,24 +54,21 @@ public class SocketHandler { //
 				writer.write("\nYou are connected from " + clientID + "\n");
 				writer.flush();
 				while (!inputFinished) {
-					String m = messages.take();// blokujc ten - pokud nen ve front zprv nic, uspi se!
-					writer.write(m + "\r\n"); // pokud njak zprvy od ostatnch mme,
-					writer.flush(); // poleme je naemu klientovi
+					String m = messages.take(); // blocks if there is no message
+					writer.write(m + "\r\n");
+					writer.flush();
 					System.err.println("DBG>Message sent to " + clientID + ":" + m + "\n");
 				}
 			} catch (IOException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 			System.err.println("DBG>Output handler for " + clientID + " has finished.");
-
 		}
 	}
-//cita inpout stream a vytvori sa request, request - co klient odosiela, loguje
 
+	// reads what the client sends, processes commands and forwards messages
 	class InputHandler implements Runnable {
 		public void run() {
 			try {
@@ -93,25 +77,23 @@ public class SocketHandler { //
 				startSignal.await();
 				System.err.println("DBG>Input handler running for " + clientID);
 				String request = "";
-				/**
-				 * v okamiku, kdy ns Thread pool spust, pidme se do mnoiny
-				 * vech aktivnch handler, aby chodily zprvy od ostatnch i nm
-				 */
+
+				// add ourselves to the active handlers (and to the public room)
 				activeHandlers.add(SocketHandler.this);
 				messages.offer("Welcome! Type your name (no spaces):");
 				BufferedReader reader = new BufferedReader(new InputStreamReader(mySocket.getInputStream(), "UTF-8"));
-				while ((request = reader.readLine()) != null) { // prisla od meho klienta nejaka zprava?
+				while ((request = reader.readLine()) != null) {
 					request = request.trim();
 					if (request.equals("")) {
 						continue;
 					}
 					if (request.startsWith("#")) {
-						processCommand(request); // prikaz
+						processCommand(request);
 					} else if (name == null) {
-						// prvni zprava od klienta = jeho jmeno
+						// the first message of the client is its name
 						setName(request);
 					} else {
-						// zprava - poslat do vsech mistnosti, kde jsem
+						// message goes to all rooms of this client
 						System.out.println("From " + name + ": " + request);
 						activeHandlers.sendMessageToGroups(SocketHandler.this, "[" + name + "] >> " + request);
 					}
@@ -125,7 +107,7 @@ public class SocketHandler { //
 			} catch (InterruptedException e) {
 				e.printStackTrace();
 			} finally {
-				// remove yourself from the set of activeHandlers
+				// remove yourself from the active handlers
 				synchronized (activeHandlers) {
 					activeHandlers.remove(SocketHandler.this);
 				}
@@ -133,7 +115,7 @@ public class SocketHandler { //
 			System.err.println("DBG>Input handler for " + clientID + " has finished.");
 		}
 
-		// nastavi jmeno, pokud je volne a nema mezery
+		// sets the name if it is free and has no spaces
 		private void setName(String newName) {
 			if (newName.contains(" ")) {
 				messages.offer("Name must not contain spaces, choose another one.");
@@ -144,7 +126,7 @@ public class SocketHandler { //
 			}
 		}
 
-		// zpracuje prikazy #setMyName, #sendPrivate, #join, #leave, #groups
+		// commands: #setMyName, #sendPrivate, #join, #leave, #groups
 		private void processCommand(String line) {
 			String[] parts = line.split(" ", 3);
 			String command = parts[0];
@@ -185,6 +167,5 @@ public class SocketHandler { //
 				messages.offer("Unknown command.");
 			}
 		}
-
 	}
 }
